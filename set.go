@@ -175,29 +175,15 @@ func (s *SetOp) keyPop() (k *key) {
 //                                 Operations                                  //
 /////////////////////////////////////////////////////////////////////////////////
 
-// predicateSet compares one set to another. The unionPredicate is true if
-// trying to find the union of the two sets and false if trying to find the
-// difference.  If symmetric is passed then the smaller set will be iterated
-// over.
-//
-// This makes only a logical difference when the predicateSet is false (
-// trying to find the difference between two sets) and it always incurs a
-// performance consideration.  Ideally iterating over the smaller set is better
-// because n < N and the lookup time for an element in a sets is constant if
-// unordered and log_2(n) if ordered. This means that this function when
-// symmetric is O( n*C ) when unordered and O(n * log_2(N)) when ordered
-//
-// Because of this observation on performance, whenever the unionPredicate is
-// set to true ( finding the union of both sets ), symmetric will always be set
-// to true if unionPredicate is set to true
-func (s *SetOp) predicateSet(other Set, unionPredicate, symmetric bool) (product Set) {
+// predicateSet compares one set to another. If unionPredicate is set to true
+// then the function will try and find the union of the two sets else it will
+// find the difference
+func (s *SetOp) predicateSet(other Set, unionPredicate bool) (product Set) {
 	product = s.New()
-	// Set symmetric to true if unionPredicate is true or symmetric is true
-	symmetric = unionPredicate || symmetric
-	// Iterate over smaller set if symmetric is passed
+	// Iterate over smaller set if unionPredicate
 	otherOp := &SetOp{other}
 	a, b := s, otherOp
-	if symmetric && (b.Card() < a.Card()) {
+	if unionPredicate && (b.Card() < a.Card()) {
 		b = s
 		a = otherOp
 	}
@@ -214,10 +200,23 @@ func (s *SetOp) predicateSet(other Set, unionPredicate, symmetric bool) (product
 	}
 	return
 }
-func (s *SetOp) intersection(other Set) (product Set) { return s.predicateSet(other, true, true) }
-func (s *SetOp) difference(other Set) (product Set)   { return s.predicateSet(other, false, false) }
+func (s *SetOp) intersection(other Set) (product Set) { return s.predicateSet(other, true) }
+func (s *SetOp) difference(other Set) (product Set)   { return s.predicateSet(other, false) }
 func (s *SetOp) symmetricDifference(other Set) (product Set) {
-	return s.predicateSet(other, false, true)
+	union := s.predicateSet(other, true)
+	// Diff 1
+	diff1 := &SetOp{(&SetOp{other}).predicateSet(union, false)}
+	// Diff 2
+	diff2 := s.predicateSet(union, false)
+	for iterator := diff2.Iterator(); ; {
+		k, done := iterator.keyIter()
+		if done {
+			break
+		}
+		diff1.keyAdd(k)
+	}
+	product = diff1
+	return
 }
 
 /////////////////////////////////////////////////////////////////////////////////
