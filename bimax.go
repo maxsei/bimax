@@ -8,7 +8,7 @@ import (
 
 // BiMax enumeration of graph G where:
 // G: is a bipartite graph of (U ∪ V, E)
-func BiMax(G graph.Iterator) (R, P *Set) {
+func BiMax(G *graph.Mutable) (R, P Set) {
 	// Travers
 	// E: is the set of all verticies in G ( Edge set )
 	E := NewSet()
@@ -27,27 +27,24 @@ func BiMax(G graph.Iterator) (R, P *Set) {
 	// empty
 	R = NewSet()
 	// P: is a set of verticies ∈ V that can be added to R, initially P = V,
-	// sorted by increasing order of neigborhood size
-	P = L.Difference(E)
-
-	// // Sort P by neighbors
-	// for iterator := P.Iterator(); ; {
-	// 	v, done := iterator.Iter()
-	// 	if done {
-	// 		break
-	// 	}
-	// 	n := Neighbors(v, G)
-	// }
+	// sorted by non-decreasing order of neigborhood size
+	P = (E.Difference(L)).Order(func(v1, v2 *int) bool {
+		return G.Degree(*v1) <= G.Degree(*v2)
+	})
 
 	// Q: is a set of verticies used to determine maximality, initially empty
 	Q := NewSet()
 
-	fmt.Printf("G = %+v\n", G)
+	// fmt.Printf("G = %+v\n", G)
 	fmt.Printf("E = %+v\n", E)
 	fmt.Printf("L = %+v\n", L)
 	fmt.Printf("R = %+v\n", R)
 	fmt.Printf("P = %+v\n", P)
 	fmt.Printf("Q = %+v\n", Q)
+
+	for P.Card() < 0 {
+
+	}
 
 	// TODO: sort values in p by neighborhood size <15-01-21, Max Schulte> //
 	// for P.Card() != 0{
@@ -65,17 +62,4 @@ func BiMax(G graph.Iterator) (R, P *Set) {
 	// 	PPrime, QPrime := NewSet(), NewSet()
 	// }
 	return
-}
-
-func Neighbors(v int, g graph.Iterator) *Set {
-	result := NewSet()
-	g.Visit(v, func(u int, _ int64) bool {
-		result.Add(u)
-		return false
-	})
-	return result
-}
-
-func biMax(G graph.Iterator, L, R, P, Q *Set) bool {
-	return true
 }
