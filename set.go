@@ -207,7 +207,7 @@ func (s *SetOp) predicateSet(other Set, unionPredicate, symmetric bool) (product
 			break
 		}
 		// Compare predicate and add if it matches
-		if other.keyHas(k) != unionPredicate {
+		if b.keyHas(k) != unionPredicate {
 			continue
 		}
 		product.mapKeyAdd(k)
@@ -308,19 +308,6 @@ func (s *SetOp) Values() []int {
 	return vv
 }
 
-// Copy returns a copy of the current set
-func (s *SetOp) copySet() Set {
-	result := s.New()
-	for iterator := s.Iterator(); ; {
-		k, done := iterator.keyIter()
-		if done {
-			break
-		}
-		result.mapKeyAdd(k)
-	}
-	return result
-}
-
 // String returns set{<values>}
 func (s *SetOp) String() string {
 	vv := s.Values()
@@ -394,7 +381,13 @@ func (s *UnorderedSet) Difference(other Set) (product *UnorderedSet) {
 func (s *UnorderedSet) SymmetricDifference(other Set) (product *UnorderedSet) {
 	return s.symmetricDifference(other).(*UnorderedSet)
 }
-func (s *UnorderedSet) Copy() (product *UnorderedSet) { return s.copySet().(*UnorderedSet) }
+func (s *UnorderedSet) Copy() (product *UnorderedSet) {
+	product = NewSet()
+	for k, _ := range s.set.set {
+		product.set.set[k] = struct{}{}
+	}
+	return product
+}
 
 // Order returns copy of the current set as an ordered set
 func (s *UnorderedSet) Order(cmp func(v1, v2 *int) bool) *OrderedSet {
@@ -495,7 +488,14 @@ func (o *OrderedSet) Difference(other Set) (product *OrderedSet) {
 func (o *OrderedSet) SymmetricDifference(other Set) (product *OrderedSet) {
 	return o.symmetricDifference(other).(*OrderedSet)
 }
-func (o *OrderedSet) Copy() (product *OrderedSet) { return o.copySet().(*OrderedSet) }
+func (o *OrderedSet) Copy() (product *OrderedSet) {
+	product = NewOrderedSetWithCapacity(o.set.compare, o.Card())
+	product.set.keys = append(product.set.keys, o.set.keys...)
+	for k, _ := range o.set.set {
+		o.set.set[k] = struct{}{}
+	}
+	return
+}
 
 // UnOrder returns copy of the current ordered set as a set
 func (o *OrderedSet) Unorder() *UnorderedSet {
