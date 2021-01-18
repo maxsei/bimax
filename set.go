@@ -10,6 +10,7 @@ import (
 /////////////////////////////////////////////////////////////////////////////////
 //                                     Key                                     //
 /////////////////////////////////////////////////////////////////////////////////
+
 type key struct {
 	data [unsafe.Sizeof(*new(int))]byte
 }
@@ -19,35 +20,84 @@ func asKeys(vPtr *[]int) *[]key { return (*[]key)(unsafe.Pointer(vPtr)) }
 func asData(k *key) *int        { return (*int)(unsafe.Pointer(k)) }
 func asDatum(k *[]key) *[]int   { return (*[]int)(unsafe.Pointer(k)) }
 
-// type Set interface {
-// 	Has(k *key) bool
-// 	Card() int
-// }
-
 /////////////////////////////////////////////////////////////////////////////////
-//                                  Builders                                   //
+//                                  Iterators                                  //
 /////////////////////////////////////////////////////////////////////////////////
 
-// NewSet returns an emtpy set
-func NewSet() *Set { return NewSetWith() }
+type setCh chan *key
 
-// NewSetFromSlice returns a set from ints
-func NewSetFromSlice(vv []int) *Set { return NewSetWith(vv...) }
+func (sc setCh) keyIter() (k *key) { return <-sc }
+func (sc setCh) Iter() (v *int)    { return asData(<-sc) }
 
-// NewSetWith returns a set with the passed int
-func NewSetWith(vv ...int) *Set {
-	result := &Set{
-		set: make(map[key]struct{}),
-	}
-	result.Update(vv...)
-	return result
+type setIterator interface {
+	keyIter() (*key, bool)
 }
 
-// Set represent a unique collection of int
-// TODO: make a thread safe version <16-01-21, Max Schulte> //
-// TODO: make the set ordered based on udfs <16-01-21, Max Schulte> //
-type Set struct {
-	set map[key]struct{}
+func newSliceIterator(keys []key) *sliceIterator {
+	return &sliceIterator{i: 0, keys: keys}
+}
+
+type sliceIterator struct {
+	i    int
+	keys []key
+}
+
+func (si *sliceIterator) keyIter() (k *key, done bool) {
+	done = si.i == len(si.keys)
+	if done {
+		return
+	}
+	k = &si.keys[si.i]
+	si.i++
+	return
+}
+
+type mapkeyIterator struct {
+	iter *reflect.MapIter
+}
+
+func (si mapkeyIterator) keyIter() (k *key, done bool) {
+	done = !si.iter.Next()
+	if done {
+		return
+	}
+	// TODO: avoid copying here by takinga pointer to the key perhaps <16-01-21, Max Schulte> //
+	kCopy := si.iter.Key().Interface().(key)
+	k = &kCopy
+	return
+}
+
+type setIteratorOp struct {
+	setIterator
+}
+
+func (si setIteratorOp) Iter() (v *int, done bool) {
+	var k *key
+	k, done = si.keyIter()
+	v = asData(k)
+	return
+}
+
+type Set interface {
+	// Creates a new instance of the same type of set
+	New() Set
+
+	// 'key' methods
+	keyHas(k *key) bool
+	mapKeyAdd(k *key)
+	mapKeyDel(k *key)
+
+	// Size of the set
+	Card() int
+
+	// Channel and iterator based iteration
+	Iterator() *setIteratorOp
+	Chan() setCh
+}
+
+// SetOp gives all Interfaces that implement Set access to the following methods:
+type SetOp struct {
+	Set
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -56,68 +106,66 @@ type Set struct {
 
 // Add adds a single element to the set returning if the operation was
 // successful
-func (s *Set) Add(v int) (ok bool) { return s.keyAdd(asKey(&v)) }
-func (s *Set) keyAdd(k *key) (ok bool) {
+func (s *SetOp) Add(v int) (ok bool) { return s.keyAdd(asKey(&v)) }
+func (s *SetOp) keyAdd(k *key) (ok bool) {
 	// Can only add if we don't have the key
 	ok = !s.keyHas(k)
 	if !ok {
 		return
 	}
 	// Success
-	s.set[*k] = struct{}{}
+	s.mapKeyAdd(k)
 	return
 }
 
 // Delete removes a single element to the set returning if the operation was
 // successful
-func (s *Set) Delete(v int) (ok bool) { return s.keyDelete(asKey(&v)) }
-func (s *Set) keyDelete(k *key) (ok bool) {
+func (s *SetOp) Delete(v int) (ok bool) { return s.keyDelete(asKey(&v)) }
+func (s *SetOp) keyDelete(k *key) (ok bool) {
 	// Can only delete if we have the key
 	ok = s.keyHas(k)
 	if !ok {
 		return
 	}
 	// Success
-	delete(s.set, *k)
+	s.mapKeyDel(k)
 	return
 }
 
 // mutate is not for external use.  It is intended to make the code for 'Update'
 // and 'Remove' smaller
-func (s *Set) mutate(mutateFunc func(*key) bool, kk *[]key) (change int) {
-	init := len(s.set)
+func (s *SetOp) mutate(mutateFunc func(*key) bool, kk *[]key) (change int) {
+	init := s.Card()
 	for _, v := range *kk {
 		mutateFunc(&v)
 	}
-	if init > len(s.set) {
-		return init - len(s.set)
+	if init > s.Card() {
+		return init - s.Card()
 	}
-	return len(s.set) - init
+	return s.Card() - init
 }
 
-func (s *Set) Update(vv ...int) (added int)   { return s.mutate(s.keyAdd, asKeys(&vv)) }
-func (s *Set) Remove(vv ...int) (deleted int) { return s.mutate(s.keyDelete, asKeys(&vv)) }
-
-func (s *Set) Clear() { s = NewSet() }
+func (s *SetOp) Update(vv ...int) (added int)   { return s.mutate(s.keyAdd, asKeys(&vv)) }
+func (s *SetOp) Remove(vv ...int) (deleted int) { return s.mutate(s.keyDelete, asKeys(&vv)) }
 
 /////////////////////////////////////////////////////////////////////////////////
 //                                 Operations                                  //
 /////////////////////////////////////////////////////////////////////////////////
 
-func (s *Set) predicateSet(other *Set, predIn bool) (product *Set) {
-	product = NewSet()
-	for v, _ := range s.set {
-		_, in := other.set[v]
-		if in != predIn {
+func (s *SetOp) predicateSet(other Set, predIn bool) (product Set) {
+	product = s.New()
+	for iterator := s.Iterator(); ; {
+		k, done := iterator.keyIter()
+		if done {
+			break
+		}
+		if other.keyHas(k) != predIn {
 			continue
 		}
-		product.set[v] = struct{}{}
+		product.mapKeyAdd(k)
 	}
 	return
 }
-
-func (s *Set) Intersection(other *Set) (product *Set) { return s.predicateSet(other, true) }
-func (s *Set) Difference(other *Set) (product *Set)   { return s.predicateSet(other, false) }
 
 /////////////////////////////////////////////////////////////////////////////////
 //                                 Properties                                  //
@@ -135,25 +183,29 @@ const (
 	JointSetEqualset
 )
 
-func (s *Set) JointSetCategory(other *Set) JointSetCategory {
+func (s *SetOp) JointSetCategory(other Set) JointSetCategory {
 	// TODO: could make this function variadice for multiple set comparison <15-01-21, Max Schulte> //
-	// See if the set should include or exclude
-	var predicate bool
-	for k, _ := range s.set {
-		predicate = other.keyHas(&k)
-		break
-	}
+	// TODO: deal with empty set which is both a disjoint and a subset of other <16-01-21, Max Schulte> //
 
 	// Separate set into what is smaller and larger set
-	small, large := s, other
+	small, large := Set(s), other
 	if s.Card() > other.Card() {
 		small, large = other, s
 	}
 
+	// See if the set should include or exclude
+	var predicate bool
+	iterator := small.Iterator()
+	k, done := iterator.keyIter()
+	predicate = other.keyHas(k)
+
 	// Iterate over the smallest set and check for items in other set
-	for v, _ := range small.set {
-		_, in := large.set[v]
-		if in != predicate {
+	for done {
+		k, done := iterator.keyIter()
+		if done {
+			break
+		}
+		if large.keyHas(k) != predicate {
 			return JointSetNone
 		}
 	}
@@ -174,70 +226,50 @@ func (s *Set) JointSetCategory(other *Set) JointSetCategory {
 	panic("unreachable")
 }
 
-func (s *Set) IsDisjoint(other *Set) bool { return s.JointSetCategory(other) == JointSetDisJoint }
-func (s *Set) IsSubset(other *Set) bool   { return s.JointSetCategory(other) == JointSetSubset }
-func (s *Set) IsSuperset(other *Set) bool { return s.JointSetCategory(other) == JointSetSuperset }
-func (s *Set) IsEqual(other *Set) bool    { return s.JointSetCategory(other) == JointSetEqualset }
+func (s *SetOp) IsDisjoint(other Set) bool {
+	return s.JointSetCategory(other) == JointSetDisJoint
+}
+func (s *SetOp) IsSubset(other Set) bool {
+	return s.JointSetCategory(other) == JointSetSubset
+}
+func (s *SetOp) IsSuperset(other Set) bool {
+	return s.JointSetCategory(other) == JointSetSuperset
+}
+func (s *SetOp) IsEqual(other Set) bool {
+	return s.JointSetCategory(other) == JointSetEqualset
+}
 
-func (s *Set) keyHas(k *key) bool { _, in := s.set[*k]; return in }
-func (s *Set) Has(v int) bool     { return s.keyHas(asKey(&v)) }
+func (s *SetOp) Has(v int) bool { return s.keyHas(asKey(&v)) }
 
-func (s *Set) Card() int { return len(s.set) }
+func (s *SetOp) Values() []int {
+	vv := make([]int, 0, s.Card())
 
-/////////////////////////////////////////////////////////////////////////////////
-//                         Values and Value Iterators                          //
-/////////////////////////////////////////////////////////////////////////////////
-
-func (s *Set) Values() []int {
-	vv := make([]int, 0, len(s.set))
-	iterator := s.Iterator()
-	for {
+	for iterator := s.Iterator(); ; {
 		// Get next value
-		v, done := iterator.Iter()
+		k, done := iterator.keyIter()
 		if done {
 			break
 		}
-		vv = append(vv, v)
+		vv = append(vv, *asData(k))
 	}
 	return vv
 }
 
-type setIterator struct {
-	set  *Set
-	iter *reflect.MapIter
-}
-
-func (si setIterator) Iter() (v int, done bool) {
-	done = si.iter.Next()
-	done = !done
-	if done {
-		return
-	}
-	key := si.iter.Key().Interface().(key)
-	v = *(*int)(unsafe.Pointer(&key))
-	return
-}
-
-func (s *Set) Iterator() *setIterator {
-	return &setIterator{set: s, iter: reflect.ValueOf(s.set).MapRange()}
-}
-
-func (s *Set) IteratorChan() (iterator chan int) {
-	go func() {
-		for key, _ := range s.set {
-			iterator <- *(asData(&key))
+// Copy returns a copy of the current set
+func (s *SetOp) Copy() Set {
+	result := s.New()
+	for iterator := s.Iterator(); ; {
+		k, done := iterator.keyIter()
+		if done {
+			break
 		}
-		close(iterator)
-	}()
-	return
+		result.mapKeyAdd(k)
+	}
+	return result
 }
-
-/////////////////////////////////////////////////////////////////////////////////
-//                                    Misc                                     //
-/////////////////////////////////////////////////////////////////////////////////
 
 // String returns set{<values>}
-func (s *Set) String() string {
+func (s *SetOp) String() string {
 	vv := s.Values()
 	vvStr := []byte(fmt.Sprint(vv))
 	vvStr[0] = '{'
@@ -245,18 +277,76 @@ func (s *Set) String() string {
 	return "set" + string(vvStr)
 }
 
-// Copy returns a copy of the current set
-func (s *Set) Copy() *Set {
-	result := NewSet()
-	for k, v := range s.set {
-		result.set[k] = v
+/////////////////////////////////////////////////////////////////////////////////
+//                                  Builders                                   //
+/////////////////////////////////////////////////////////////////////////////////
+
+// NewSet returns an emtpy set
+func NewSet() *UnorderedSet { return NewSetWith() }
+
+// NewSetFromSlice returns a set from ints
+func NewSetFromSlice(vv []int) *UnorderedSet { return NewSetWith(vv...) }
+
+// NewSetWith returns a set with the passed int
+func NewSetWith(vv ...int) *UnorderedSet {
+	set := &unorderedSet{
+		set: make(map[key]struct{}),
 	}
+	result := &UnorderedSet{&SetOp{set}, set}
+	result.Update(vv...)
 	return result
 }
 
+type UnorderedSet struct {
+	*SetOp
+	set *unorderedSet
+}
+
+// UnorderedSet represent a unique collection of int
+// TODO: make a thread safe version <16-01-21, Max Schulte> //
+// TODO: make the set ordered based on udfs <16-01-21, Max Schulte> //
+type unorderedSet struct {
+	set map[key]struct{}
+}
+
+// Set interface implementation
+func (s *unorderedSet) New() Set           { return NewSet() }
+func (s *unorderedSet) keyHas(k *key) bool { _, has := s.set[*k]; return has }
+func (s *unorderedSet) mapKeyAdd(k *key)   { s.set[*k] = struct{}{} }
+func (s *unorderedSet) mapKeyDel(k *key)   { delete(s.set, *k) }
+func (s *unorderedSet) Card() int          { return len(s.set) }
+func (s *unorderedSet) Iterator() *setIteratorOp {
+	return &setIteratorOp{&mapkeyIterator{reflect.ValueOf(s.set).MapRange()}}
+}
+func (s *unorderedSet) Chan() (iterator setCh) {
+	iterator = make(setCh)
+	go func() {
+		for key, _ := range s.set {
+			iterator <- &key
+		}
+		close(iterator)
+	}()
+	return
+}
+
+func (s *unorderedSet) Clear() { s = s.New().(*unorderedSet) }
+
+// Type assertions for set operations
+func (s *UnorderedSet) Intersection(other Set) (product *UnorderedSet) {
+	return s.predicateSet(other, true).(*UnorderedSet)
+}
+func (s *UnorderedSet) Difference(other Set) (product *UnorderedSet) {
+	return s.predicateSet(other, false).(*UnorderedSet)
+}
+
 // Order returns copy of the current set as an ordered set
-func (s *Set) Order(cmp func(v1, v2 *int) bool) *OrderedSet {
-	return nil
+func (s *UnorderedSet) Order(cmp func(v1, v2 *int) bool) *OrderedSet {
+	result := NewOrderedSetWithCapacity(cmp, s.Card())
+	for k, _ := range s.set.set {
+		result.set.mapKeyAdd(&k)
+		result.keyAdd(&k)
+	}
+	return result
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -267,62 +357,91 @@ func NewOrderedSet(cmp func(v1, v2 *int) bool) *OrderedSet {
 	return NewOrderedSetWithCapacity(cmp, 0)
 }
 
+func NewOrderedSetFromSlice(cmp func(v1, v2 *int) bool, vv []int) *OrderedSet {
+	return NewOrderedSetWith(cmp, vv...)
+}
+func NewOrderedSetWith(cmp func(v1, v2 *int) bool, vv ...int) *OrderedSet {
+	result := NewOrderedSetWithCapacity(cmp, 0)
+	result.Update(vv...)
+	return result
+}
+
 func NewOrderedSetWithCapacity(cmp func(v1, v2 *int) bool, capacity int) *OrderedSet {
-	set := NewSet()
-	result := OrderedSet{
-		set,
-		set,
-		make([]key, 0, capacity),
-		cmp,
+	set := &orderedSet{
+		set:     make(map[key]struct{}),
+		keys:    make([]key, 0, capacity),
+		compare: cmp,
 	}
-	return &result
+	return &OrderedSet{&SetOp{set}, set}
 }
 
 type OrderedSet struct {
-	*Set
-	set     *Set
+	*SetOp
+	set *orderedSet
+}
+
+type orderedSet struct {
+	set     map[key]struct{}
 	keys    []key
 	compare func(v1, v2 *int) bool
 }
 
-func (o *OrderedSet) keyIdx(k *key) int {
-	// Send key and ith key to comparison function
-	return sort.Search(len(o.keys), func(i int) bool { return o.compare(asData(k), asData(&o.keys[i])) })
+func (o *orderedSet) search(k *key) int {
+	// Find the user defined sort comparison index
+	i := sort.Search(len(o.keys), func(i int) bool {
+		return o.compare(asData(k), asData(&o.keys[i]))
+	})
+	return i
 }
 
-// Add adds a single element to the set returning if the operation was
-// successful
-func (o *OrderedSet) Add(v int) (ok bool) { return o.keyAdd(asKey(&v)) }
-func (o *OrderedSet) keyAdd(k *key) (ok bool) {
-	// Try adding key to unordered set
-	ok = o.set.keyAdd(k)
-	if !ok {
-		return
-	}
-	i := o.keyIdx(k)
-	// If not found in vv just append it
-	if i == len(o.keys) {
-		o.keys = append(o.keys, *k)
-		return
-	}
+// Set interface implementation
+func (o *orderedSet) New() Set           { return NewOrderedSet(o.compare) }
+func (o *orderedSet) keyHas(k *key) bool { _, ok := o.set[*k]; return ok }
+func (o *orderedSet) mapKeyAdd(k *key) {
+	i := o.search(k)
 	// Shift over, copy mem, and insert element at i
-	o.keys = append(o.keys, key{})
+	o.keys = append(o.keys, *k)
 	copy(o.keys[i+1:], o.keys[i:len(o.keys)-1])
 	o.keys[i] = *k
-	return true
+	// Add to map
+	o.set[*k] = struct{}{}
+}
+func (o *orderedSet) mapKeyDel(k *key) {
+	i := o.search(k)
+	// Get the end slice of keys
+	// Remove k from the sorted set
+	o.keys = append(o.keys[i:], o.keys[i+1:]...)
+	// Remove from map
+	delete(o.set, *k)
+}
+func (o *orderedSet) Card() int { return len(o.keys) }
+func (o *orderedSet) Iterator() *setIteratorOp {
+	return &setIteratorOp{newSliceIterator(o.keys)}
+}
+func (o *orderedSet) Chan() (iterator setCh) {
+	iterator = make(setCh)
+	go func() {
+		for _, k := range o.keys {
+			iterator <- &k
+		}
+		close(iterator)
+	}()
+	return
 }
 
-// Delete removes a single element to the set returning if the operation was
-// successful
-func (o *OrderedSet) Delete(v int) (ok bool) { return o.keyDelete(asKey(&v)) }
-func (o *OrderedSet) keyDelete(k *key) (ok bool) {
-	// Try deleting from unordered set
-	ok = o.set.keyDelete(k)
-	if !ok {
-		return ok
+// Type assertions for set operations
+func (o *OrderedSet) Intersection(other Set) (product *OrderedSet) {
+	return o.predicateSet(other, true).(*OrderedSet)
+}
+func (o *OrderedSet) Difference(other Set) (product *OrderedSet) {
+	return o.predicateSet(other, false).(*OrderedSet)
+}
+
+// UnOrder returns copy of the current ordered set as a set
+func (o *OrderedSet) Unorder() *UnorderedSet {
+	result := NewSet()
+	for _, k := range o.set.keys {
+		result.keyAdd(&k)
 	}
-	// Remove the ith key from keys
-	i := o.keyIdx(k)
-	o.keys = append(o.keys[:i], o.keys[i+1:]...)
-	return
+	return result
 }
