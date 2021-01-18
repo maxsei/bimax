@@ -218,14 +218,19 @@ func (s *SetOp) symmetricDifference(other Set) (product Set) {
 }
 
 func (s *SetOp) union(other Set) (product Set) {
-	sCopy := &SetOp{s.copySet()}
-	for iterator := other.Iterator(); ; {
+	smol, larg := s.Set, other
+	if larg.Card() < smol.Card() {
+		smol = other
+		larg = s.Set
+	}
+	c := &SetOp{larg.copySet()}
+	for iterator := smol.Iterator(); ; {
 		k, done := iterator.keyIter()
 		if done {
-			product = sCopy.Set
+			product = c.Set
 			return
 		}
-		sCopy.keyAdd(k)
+		c.keyAdd(k)
 	}
 }
 
