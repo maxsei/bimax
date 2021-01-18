@@ -45,11 +45,11 @@ type sliceIterator struct {
 
 func (si *sliceIterator) keyIter() (k *key, done bool) {
 	done = si.i == len(si.keys)
-	si.i++
 	if done {
 		return
 	}
 	k = &si.keys[si.i]
+	si.i++
 	return
 }
 
@@ -162,7 +162,12 @@ func (s *SetOp) Remove(vv ...int) (deleted int) { return s.mutate(s.keyDelete, a
 
 // Pop returns the last item in ordered sets and is the same as calling 'Iter()'
 // on unordered set iterator
-func (s *SetOp) Pop() (v *int) { return asData(s.Iterator().keyPop()) }
+func (s *SetOp) Pop() (v *int) { return asData(s.keyPop()) }
+func (s *SetOp) keyPop() (k *key) {
+	k = s.Iterator().keyPop()
+	s.keyDelete(k)
+	return
+}
 
 /////////////////////////////////////////////////////////////////////////////////
 //                                 Operations                                  //
