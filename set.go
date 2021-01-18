@@ -173,15 +173,15 @@ func (s *SetOp) keyPop() (k *key) {
 //                                 Operations                                  //
 /////////////////////////////////////////////////////////////////////////////////
 
-// predicateSet compares one set to another. If unionPredicate is set to true
-// then the function will try and find the union of the two sets else it will
-// find the difference
-func (s *SetOp) predicateSet(other Set, unionPredicate bool) (product Set) {
+// predicateSet compares one set to another. If all is set to true then the
+// function will try and find the union of the two sets else it will find the
+// difference
+func (s *SetOp) predicateSet(other Set, all bool) (product Set) {
 	product = s.New()
 	// Iterate over smaller set if unionPredicate
 	otherOp := &SetOp{other}
 	a, b := s, otherOp
-	if unionPredicate && (b.Card() < a.Card()) {
+	if all && (b.Card() < a.Card()) {
 		b = s
 		a = otherOp
 	}
@@ -191,7 +191,7 @@ func (s *SetOp) predicateSet(other Set, unionPredicate bool) (product Set) {
 			break
 		}
 		// Compare predicate and add if it matches
-		if b.keyHas(k) != unionPredicate {
+		if b.keyHas(k) != all {
 			continue
 		}
 		product.mapKeyAdd(k)
@@ -213,11 +213,21 @@ func (s *SetOp) symmetricDifference(other Set) (product Set) {
 		}
 		diff1.keyAdd(k)
 	}
-	product = diff1
+	product = diff1.Set
 	return
 }
 
-// func (s *SetOp) union(other Set) (product Set) {
+func (s *SetOp) union(other Set) (product Set) {
+	sCopy := &SetOp{s.copySet()}
+	for iterator := other.Iterator(); ; {
+		k, done := iterator.keyIter()
+		if done {
+			product = sCopy.Set
+			return
+		}
+		sCopy.keyAdd(k)
+	}
+}
 
 /////////////////////////////////////////////////////////////////////////////////
 //                                 Properties                                  //
@@ -399,6 +409,9 @@ func (s *UnorderedSet) SymmetricDifference(other Set) (product *UnorderedSet) {
 }
 
 func (s *UnorderedSet) Copy() (product *UnorderedSet) { return s.copySet().(*UnorderedSet) }
+func (s *UnorderedSet) Union(other Set) (product *UnorderedSet) {
+	return s.union(other).(*UnorderedSet)
+}
 
 // Order returns copy of the current set as an ordered set
 func (s *UnorderedSet) Order(cmp func(v1, v2 *int) bool) *OrderedSet {
@@ -521,6 +534,9 @@ func (o *OrderedSet) SymmetricDifference(other Set) (product *OrderedSet) {
 	return o.symmetricDifference(other).(*OrderedSet)
 }
 func (o *OrderedSet) Copy() (product *OrderedSet) { return o.copySet().(*OrderedSet) }
+func (o *OrderedSet) Union(other Set) (product *OrderedSet) {
+	return o.union(other).(*OrderedSet)
+}
 
 // UnOrder returns copy of the current ordered set as a set
 func (o *OrderedSet) Unorder() *UnorderedSet {
