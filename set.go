@@ -31,6 +31,7 @@ func (sc setCh) Iter() (v *int)    { return asData(<-sc) }
 
 type setIterator interface {
 	keyIter() (*key, bool)
+	keyPop() *key
 }
 
 func newSliceIterator(keys []key) *sliceIterator {
@@ -44,11 +45,16 @@ type sliceIterator struct {
 
 func (si *sliceIterator) keyIter() (k *key, done bool) {
 	done = si.i == len(si.keys)
+	si.i++
 	if done {
 		return
 	}
 	k = &si.keys[si.i]
-	si.i++
+	return
+}
+
+func (si *sliceIterator) keyPop() (k *key) {
+	k = &si.keys[len(si.keys)-1]
 	return
 }
 
@@ -64,6 +70,12 @@ func (si mapkeyIterator) keyIter() (k *key, done bool) {
 	// TODO: avoid copying here by takinga pointer to the key perhaps <16-01-21, Max Schulte> //
 	kCopy := si.iter.Key().Interface().(key)
 	k = &kCopy
+	return
+}
+
+// Save as key iter
+func (si *mapkeyIterator) keyPop() (k *key) {
+	k, _ = si.keyIter()
 	return
 }
 
@@ -147,6 +159,10 @@ func (s *SetOp) mutate(mutateFunc func(*key) bool, kk *[]key) (change int) {
 
 func (s *SetOp) Update(vv ...int) (added int)   { return s.mutate(s.keyAdd, asKeys(&vv)) }
 func (s *SetOp) Remove(vv ...int) (deleted int) { return s.mutate(s.keyDelete, asKeys(&vv)) }
+
+// Pop returns the last item in ordered sets and is the same as calling 'Iter()'
+// on unordered set iterator
+func (s *SetOp) Pop() (v *int) { return asData(s.Iterator().keyPop()) }
 
 /////////////////////////////////////////////////////////////////////////////////
 //                                 Operations                                  //
