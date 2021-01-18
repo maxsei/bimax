@@ -445,10 +445,9 @@ type orderedSet struct {
 
 func (o *orderedSet) search(k *key) int {
 	// Find the user defined sort comparison index
-	i := sort.Search(len(o.keys), func(i int) bool {
+	return sort.Search(len(o.keys), func(i int) bool {
 		return o.compare(asData(k), asData(&o.keys[i]))
 	})
-	return i
 }
 
 // Set interface implementation
@@ -467,7 +466,7 @@ func (o *orderedSet) mapKeyDel(k *key) {
 	i := o.search(k)
 	// Get the end slice of keys
 	// Remove k from the sorted set
-	o.keys = append(o.keys[i:], o.keys[i+1:]...)
+	o.keys = append(o.keys[:i], o.keys[i+1:]...)
 	// Remove from map
 	delete(o.set, *k)
 }
