@@ -58,6 +58,8 @@ func (si *sliceIterator) keyPop() (k *key) {
 	return
 }
 
+// TODO: investigate just using set cardinality and Pop implementation on each
+// set type instead of using mapkey iterator <18-01-21, Max Schulte> //
 type mapkeyIterator struct {
 	iter *reflect.MapIter
 }
@@ -173,19 +175,49 @@ func (s *SetOp) keyPop() (k *key) {
 //                                 Operations                                  //
 /////////////////////////////////////////////////////////////////////////////////
 
-func (s *SetOp) predicateSet(other Set, predIn bool) (product Set) {
+// predicateSet compares one set to another. The unionPredicate is true if
+// trying to find the union of the two sets and false if trying to find the
+// difference.  If symmetric is passed then the smaller set will be iterated
+// over.
+//
+// This makes only a logical difference when the predicateSet is false (
+// trying to find the difference between two sets) and it always incurs a
+// performance consideration.  Ideally iterating over the smaller set is better
+// because n < N and the lookup time for an element in a sets is constant if
+// unordered and log_2(n) if ordered. This means that this function when
+// symmetric is O( n*C ) when unordered and O(n * log_2(N)) when ordered
+//
+// Because of this observation on performance, whenever the unionPredicate is
+// set to true ( finding the union of both sets ), symmetric will always be set
+// to true if unionPredicate is set to true
+func (s *SetOp) predicateSet(other Set, unionPredicate, symmetric bool) (product Set) {
 	product = s.New()
-	for iterator := s.Iterator(); ; {
+	// Set symmetric to true if unionPredicate is true or symmetric is true
+	symmetric = unionPredicate || symmetric
+	// Iterate over smaller set if symmetric is passed
+	otherOp := &SetOp{other}
+	a, b := s, otherOp
+	if symmetric && (b.Card() < a.Card()) {
+		b = s
+		a = otherOp
+	}
+	for iterator := a.Iterator(); ; {
 		k, done := iterator.keyIter()
 		if done {
 			break
 		}
-		if other.keyHas(k) != predIn {
+		// Compare predicate and add if it matches
+		if other.keyHas(k) != unionPredicate {
 			continue
 		}
 		product.mapKeyAdd(k)
 	}
 	return
+}
+func (s *SetOp) intersection(other Set) (product Set) { return s.predicateSet(other, true, true) }
+func (s *SetOp) difference(other Set) (product Set)   { return s.predicateSet(other, false, false) }
+func (s *SetOp) symmetricDifference(other Set) (product Set) {
+	return s.predicateSet(other, false, true)
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -277,7 +309,7 @@ func (s *SetOp) Values() []int {
 }
 
 // Copy returns a copy of the current set
-func (s *SetOp) Copy() Set {
+func (s *SetOp) copySet() Set {
 	result := s.New()
 	for iterator := s.Iterator(); ; {
 		k, done := iterator.keyIter()
@@ -354,11 +386,15 @@ func (s *unorderedSet) Clear() { s = s.New().(*unorderedSet) }
 
 // Type assertions for set operations
 func (s *UnorderedSet) Intersection(other Set) (product *UnorderedSet) {
-	return s.predicateSet(other, true).(*UnorderedSet)
+	return s.intersection(other).(*UnorderedSet)
 }
 func (s *UnorderedSet) Difference(other Set) (product *UnorderedSet) {
-	return s.predicateSet(other, false).(*UnorderedSet)
+	return s.difference(other).(*UnorderedSet)
 }
+func (s *UnorderedSet) SymmetricDifference(other Set) (product *UnorderedSet) {
+	return s.symmetricDifference(other).(*UnorderedSet)
+}
+func (s *UnorderedSet) Copy() (product *UnorderedSet) { return s.copySet().(*UnorderedSet) }
 
 // Order returns copy of the current set as an ordered set
 func (s *UnorderedSet) Order(cmp func(v1, v2 *int) bool) *OrderedSet {
@@ -450,13 +486,17 @@ func (o *orderedSet) Chan() (iterator setCh) {
 	return
 }
 
-// Type assertions for set operations
+// Type assertions set ops that return set
 func (o *OrderedSet) Intersection(other Set) (product *OrderedSet) {
-	return o.predicateSet(other, true).(*OrderedSet)
+	return o.intersection(other).(*OrderedSet)
 }
 func (o *OrderedSet) Difference(other Set) (product *OrderedSet) {
-	return o.predicateSet(other, false).(*OrderedSet)
+	return o.difference(other).(*OrderedSet)
 }
+func (o *OrderedSet) SymmetricDifference(other Set) (product *OrderedSet) {
+	return o.symmetricDifference(other).(*OrderedSet)
+}
+func (o *OrderedSet) Copy() (product *OrderedSet) { return o.copySet().(*OrderedSet) }
 
 // UnOrder returns copy of the current ordered set as a set
 func (o *OrderedSet) Unorder() *UnorderedSet {
