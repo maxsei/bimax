@@ -93,18 +93,16 @@ func (si setIteratorOp) Iter() (v *int, done bool) {
 }
 
 type Set interface {
-	// Creates a new instance of the same type of set
+	// Set creation
 	New() Set
-
-	// 'key' methods
+	copySet() Set
+	// Key related operations
 	keyHas(k *key) bool
 	mapKeyAdd(k *key)
 	mapKeyDel(k *key)
-
-	// Size of the set
+	// Set cardinality
 	Card() int
-
-	// Channel and iterator based iteration
+	// Channel and key based iteration
 	Iterator() *setIteratorOp
 	Chan() setCh
 }
@@ -218,6 +216,8 @@ func (s *SetOp) symmetricDifference(other Set) (product Set) {
 	product = diff1
 	return
 }
+
+// func (s *SetOp) union(other Set) (product Set) {
 
 /////////////////////////////////////////////////////////////////////////////////
 //                                 Properties                                  //
@@ -343,17 +343,32 @@ type UnorderedSet struct {
 
 // UnorderedSet represent a unique collection of int
 // TODO: make a thread safe version <16-01-21, Max Schulte> //
-// TODO: make the set ordered based on udfs <16-01-21, Max Schulte> //
 type unorderedSet struct {
 	set map[key]struct{}
 }
 
-// Set interface implementation
-func (s *unorderedSet) New() Set           { return NewSet() }
+/////////////////////////////////////////
+//  Start Set Interface Implmentation  //
+/////////////////////////////////////////
+// Set creation
+func (s *unorderedSet) New() Set { return NewSet() }
+func (s *unorderedSet) copySet() Set {
+	product := NewSet()
+	for k, _ := range s.set {
+		product.set.set[k] = struct{}{}
+	}
+	return product
+}
+
+// Key related operations
 func (s *unorderedSet) keyHas(k *key) bool { _, has := s.set[*k]; return has }
 func (s *unorderedSet) mapKeyAdd(k *key)   { s.set[*k] = struct{}{} }
 func (s *unorderedSet) mapKeyDel(k *key)   { delete(s.set, *k) }
-func (s *unorderedSet) Card() int          { return len(s.set) }
+
+// Set cardinality
+func (s *unorderedSet) Card() int { return len(s.set) }
+
+// Channel and key based iteration
 func (s *unorderedSet) Iterator() *setIteratorOp {
 	return &setIteratorOp{&mapkeyIterator{reflect.ValueOf(s.set).MapRange()}}
 }
@@ -368,9 +383,11 @@ func (s *unorderedSet) Chan() (iterator setCh) {
 	return
 }
 
-func (s *unorderedSet) Clear() { s = s.New().(*unorderedSet) }
+/////////////////////////////////////////
+//   End Set Interface Implmentation   //
+/////////////////////////////////////////
 
-// Type assertions for set operations
+// Operations that require type assertion this set's type
 func (s *UnorderedSet) Intersection(other Set) (product *UnorderedSet) {
 	return s.intersection(other).(*UnorderedSet)
 }
@@ -380,13 +397,8 @@ func (s *UnorderedSet) Difference(other Set) (product *UnorderedSet) {
 func (s *UnorderedSet) SymmetricDifference(other Set) (product *UnorderedSet) {
 	return s.symmetricDifference(other).(*UnorderedSet)
 }
-func (s *UnorderedSet) Copy() (product *UnorderedSet) {
-	product = NewSet()
-	for k, _ := range s.set.set {
-		product.set.set[k] = struct{}{}
-	}
-	return product
-}
+
+func (s *UnorderedSet) Copy() (product *UnorderedSet) { return s.copySet().(*UnorderedSet) }
 
 // Order returns copy of the current set as an ordered set
 func (s *UnorderedSet) Order(cmp func(v1, v2 *int) bool) *OrderedSet {
@@ -442,8 +454,21 @@ func (o *orderedSet) search(k *key) int {
 	})
 }
 
-// Set interface implementation
-func (o *orderedSet) New() Set           { return NewOrderedSet(o.compare) }
+/////////////////////////////////////////
+//  Start Set Interface Implmentation  //
+/////////////////////////////////////////
+// Set creation
+func (o *orderedSet) New() Set { return NewOrderedSet(o.compare) }
+func (o *orderedSet) copySet() Set {
+	product := NewOrderedSetWithCapacity(o.compare, o.Card())
+	product.set.keys = append(product.set.keys, o.keys...)
+	for k, _ := range o.set {
+		o.set[k] = struct{}{}
+	}
+	return product
+}
+
+// Key related operations
 func (o *orderedSet) keyHas(k *key) bool { _, ok := o.set[*k]; return ok }
 func (o *orderedSet) mapKeyAdd(k *key) {
 	i := o.search(k)
@@ -462,10 +487,14 @@ func (o *orderedSet) mapKeyDel(k *key) {
 	// Remove from map
 	delete(o.set, *k)
 }
+
+// Set cardinality
 func (o *orderedSet) Card() int { return len(o.keys) }
 func (o *orderedSet) Iterator() *setIteratorOp {
 	return &setIteratorOp{newSliceIterator(o.keys)}
 }
+
+// Channel and key based iteration
 func (o *orderedSet) Chan() (iterator setCh) {
 	iterator = make(setCh)
 	go func() {
@@ -477,7 +506,11 @@ func (o *orderedSet) Chan() (iterator setCh) {
 	return
 }
 
-// Type assertions set ops that return set
+/////////////////////////////////////////
+//   End Set Interface Implmentation   //
+/////////////////////////////////////////
+
+// Operations that require type assertion this set's type
 func (o *OrderedSet) Intersection(other Set) (product *OrderedSet) {
 	return o.intersection(other).(*OrderedSet)
 }
@@ -487,14 +520,7 @@ func (o *OrderedSet) Difference(other Set) (product *OrderedSet) {
 func (o *OrderedSet) SymmetricDifference(other Set) (product *OrderedSet) {
 	return o.symmetricDifference(other).(*OrderedSet)
 }
-func (o *OrderedSet) Copy() (product *OrderedSet) {
-	product = NewOrderedSetWithCapacity(o.set.compare, o.Card())
-	product.set.keys = append(product.set.keys, o.set.keys...)
-	for k, _ := range o.set.set {
-		o.set.set[k] = struct{}{}
-	}
-	return
-}
+func (o *OrderedSet) Copy() (product *OrderedSet) { return o.copySet().(*OrderedSet) }
 
 // UnOrder returns copy of the current ordered set as a set
 func (o *OrderedSet) Unorder() *UnorderedSet {
