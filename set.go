@@ -32,6 +32,7 @@ func (sc setCh) Iter() (v *int)    { return asData(<-sc) }
 type setIterator interface {
 	keyIter() (*key, bool)
 	keyPop() *key
+	keyGet(i int) *key
 }
 
 func newSliceIterator(keys []key) *sliceIterator {
@@ -58,6 +59,11 @@ func (si *sliceIterator) keyPop() (k *key) {
 	return
 }
 
+func (si *sliceIterator) keyGet(i int) (k *key) {
+	k = &si.keys[i]
+	return
+}
+
 // TODO: investigate just using set cardinality and Pop implementation on each
 // set type instead of using mapkey iterator <18-01-21, Max Schulte> //
 type mapkeyIterator struct {
@@ -81,6 +87,23 @@ func (si *mapkeyIterator) keyPop() (k *key) {
 	return
 }
 
+func (si *mapkeyIterator) keyGet(i int) (k *key) {
+	for j := 0; j < i; j++ {
+		done := !si.iter.Next()
+		if done {
+			panic("%d out of range")
+			return
+		}
+		if i < j {
+			continue
+		}
+		// TODO: avoid copying here by takinga pointer to the key perhaps <16-01-21, Max Schulte> //
+		kCopy := si.iter.Key().Interface().(key)
+		k = &kCopy
+	}
+	return
+}
+
 type setIteratorOp struct {
 	setIterator
 }
@@ -90,6 +113,10 @@ func (si setIteratorOp) Iter() (v *int, done bool) {
 	k, done = si.keyIter()
 	v = asData(k)
 	return
+}
+
+func (si setIteratorOp) Get(i int) (v *int) {
+	return asData(si.keyGet(i))
 }
 
 type Set interface {
