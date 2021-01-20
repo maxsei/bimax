@@ -1,22 +1,11 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/yourbasic/graph"
 )
 
-// Pick vertex v
-// Create a set of its neighbors u
-// Create an empty set for neighbors'
-func IntSort(v1, v2 *int) bool {
-	return *v1 <= *v2
-}
-
-var depth int
-
-// BiMax enumeration of graph G where:
-// G: is a bipartite graph of (U ∪ V, E)
+// BiMax finds the maximal bipartitie clique of a bipartite graph of graph G
+// where G is a bipartite graph of (U ∪ V, E)
 func BiMax(G *graph.Mutable) (Set, Set) {
 	// E: is the set of all verticies in G ( Edge set )
 	E := NewSet()
@@ -49,12 +38,8 @@ func BiMax(G *graph.Mutable) (Set, Set) {
 	// Q: is a set of verticies used to determine maximality, initially empty
 	Q := NewSet()
 
-	// fmt.Printf("G = %+v\n", G)
-	fmt.Printf("E = %+v\n", E)
-	fmt.Printf("L = %+v\n", L)
-	fmt.Printf("R = %+v\n", R)
-	fmt.Printf("P = %+v\n", P)
-	fmt.Printf("Q = %+v\n", Q)
+	// Resulting sets
+	A, B := NewSet(), NewSet()
 
 	var bicliqueFind func(P *OrderedSet, L, R, Q *UnorderedSet)
 	bicliqueFind = func(P *OrderedSet, L, R, Q *UnorderedSet) {
@@ -62,11 +47,6 @@ func BiMax(G *graph.Mutable) (Set, Set) {
 
 		for i := 0; 0 < P.Card(); i++ {
 			x, _ := P.Iterator().Iter()
-			// x := P.Iterator().Get(i)
-			// x := P.Pop()
-			// for i, x := range PValues {
-			fmt.Printf("\n|%-10sP.Card(): %d depth: %-10d|\n", "", P.Card(), depth)
-			// x := *P.Pop()
 
 			// Candidates
 			C := NewSetWith(*x)
@@ -129,32 +109,24 @@ func BiMax(G *graph.Mutable) (Set, Set) {
 					}
 				}
 				// Print Maximal biclique
-				fmt.Println(Lʹ, Rʹ)
+				if (A.Card() * B.Card()) < (Lʹ.Card() * Rʹ.Card()) {
+					// A = Lʹ.Copy()
+					// B = Rʹ.Copy()
+					A = Lʹ
+					B = Rʹ
+				}
+				// fmt.Println(Lʹ, Rʹ)
 				if Pʹ.Card() == 0 {
-					// fmt.Printf("R = %+v\n", R)
-					// fmt.Printf("Q = %+v\n", Q)
-					// fmt.Printf("P = %+v\n", P)
-					// fmt.Printf("L = %+v\n", L)
-					// fmt.Printf("E = %+v\n", E)
-					// fmt.Printf("Rʹ = %+v\n", Rʹ)
-					// fmt.Printf("Qʹ = %+v\n", Qʹ)
-					// fmt.Printf("Pʹ = %+v\n", Pʹ)
-					// fmt.Printf("Lʹᶜ = %+v\n", Lʹᶜ)
-					// fmt.Printf("Lʹ = %+v\n", Lʹ)
-					// fmt.Printf("C = %+v\n", C)
-					depth++
 					bicliqueFind(Pʹ, Lʹ, Rʹ, Qʹ)
-					depth--
 				}
 			}
 			CValues := C.Values()
-			fmt.Printf("CValues = %+v\n", CValues)
 			Q.Update(CValues...)
 			P.Remove(CValues...)
 		}
 	}
 	bicliqueFind(P, L, R, Q)
-	return nil, nil
+	return A, B
 }
 
 // ClosedDegree returns the degree of the closed neighborhood at v
