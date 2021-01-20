@@ -12,7 +12,8 @@ import (
 /////////////////////////////////////////////////////////////////////////////////
 
 type key struct {
-	data [unsafe.Sizeof(*new(int))]byte
+	// data [unsafe.Sizeof(*new(int))]byte
+	int
 }
 
 func asKey(vPtr *int) *key      { return (*key)(unsafe.Pointer(vPtr)) }
@@ -91,7 +92,7 @@ func (si *mapkeyIterator) keyGet(i int) (k *key) {
 	for j := 0; j < i; j++ {
 		done := !si.iter.Next()
 		if done {
-			panic("%d out of range")
+			panic(fmt.Sprintf("%d out of range", i))
 			return
 		}
 		if i < j {
