@@ -2,9 +2,7 @@ package main
 
 import (
 	"fmt"
-	"reflect"
 	"sort"
-	"unsafe"
 )
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -12,127 +10,45 @@ import (
 /////////////////////////////////////////////////////////////////////////////////
 
 type key struct {
-	// data [unsafe.Sizeof(*new(int))]byte
 	int
 }
 
-func asKey(vPtr *int) *key      { return (*key)(unsafe.Pointer(vPtr)) }
-func asKeys(vPtr *[]int) *[]key { return (*[]key)(unsafe.Pointer(vPtr)) }
-func asData(k *key) *int        { return (*int)(unsafe.Pointer(k)) }
-func asDatum(k *[]key) *[]int   { return (*[]int)(unsafe.Pointer(k)) }
+func asKey(v int) key { return key{v} }
+
+// func asKeys(vPtr []int) []key { return (*[]key)(unsafe.Pointer(vPtr)) }
+func asData(k key) int { return k.int }
+
+// func asDatum(k []key) []int   { return (*[]int)(unsafe.Pointer(k)) }
 
 /////////////////////////////////////////////////////////////////////////////////
 //                                  Iterators                                  //
 /////////////////////////////////////////////////////////////////////////////////
 
-type setCh chan *key
-
-func (sc setCh) keyIter() (k *key) { return <-sc }
-func (sc setCh) Iter() (v *int)    { return asData(<-sc) }
-
-type setIterator interface {
-	keyIter() (*key, bool)
-	keyPop() *key
-	keyGet(i int) *key
+func newSetCh() *setCh {
+	return &setCh{ch: make(chan key)}
 }
 
-func newSliceIterator(keys []key) *sliceIterator {
-	return &sliceIterator{i: 0, keys: keys}
+type setCh struct {
+	ch chan key
 }
 
-type sliceIterator struct {
-	i    int
-	keys []key
-}
-
-func (si *sliceIterator) keyIter() (k *key, done bool) {
-	done = si.i == len(si.keys)
-	if done {
-		return
-	}
-	k = &si.keys[si.i]
-	si.i++
-	return
-}
-
-func (si *sliceIterator) keyPop() (k *key) {
-	k = &si.keys[len(si.keys)-1]
-	return
-}
-
-func (si *sliceIterator) keyGet(i int) (k *key) {
-	k = &si.keys[i]
-	return
-}
-
-// TODO: investigate just using set cardinality and Pop implementation on each
-// set type instead of using mapkey iterator <18-01-21, Max Schulte> //
-type mapkeyIterator struct {
-	iter *reflect.MapIter
-}
-
-func (si mapkeyIterator) keyIter() (k *key, done bool) {
-	done = !si.iter.Next()
-	if done {
-		return
-	}
-	// TODO: avoid copying here by takinga pointer to the key perhaps <16-01-21, Max Schulte> //
-	kCopy := si.iter.Key().Interface().(key)
-	k = &kCopy
-	return
-}
-
-// Save as key iter
-func (si *mapkeyIterator) keyPop() (k *key) {
-	k, _ = si.keyIter()
-	return
-}
-
-func (si *mapkeyIterator) keyGet(i int) (k *key) {
-	for j := 0; j < i; j++ {
-		done := !si.iter.Next()
-		if done {
-			panic(fmt.Sprintf("%d out of range", i))
-			return
-		}
-		if i < j {
-			continue
-		}
-		// TODO: avoid copying here by takinga pointer to the key perhaps <16-01-21, Max Schulte> //
-		kCopy := si.iter.Key().Interface().(key)
-		k = &kCopy
-	}
-	return
-}
-
-type setIteratorOp struct {
-	setIterator
-}
-
-func (si setIteratorOp) Iter() (v *int, done bool) {
-	var k *key
-	k, done = si.keyIter()
-	v = asData(k)
-	return
-}
-
-func (si setIteratorOp) Get(i int) (v *int) {
-	return asData(si.keyGet(i))
-}
+func (sc setCh) send(k key) { sc.ch <- k }
+func (sc setCh) Iter() int  { return asData(<-sc.ch) }
+func (sc setCh) Close()     { close(sc.ch) }
 
 type Set interface {
 	// Set creation
 	New() Set
 	copySet() Set
 	// Key related operations
-	keyHas(k *key) bool
-	mapKeyAdd(k *key)
-	mapKeyDel(k *key)
+	keyHas(k key) bool
+	mapKeyAdd(k key)
+	mapKeyDel(k key)
 	// Set cardinality
 	Card() int
-	// Channel and key based iteration
-	Iterator() *setIteratorOp
-	Chan() setCh
+	// iteration
+	keyEach(do func(k key) (done bool))
+	Chan() *setCh
 }
 
 // SetOp gives all Interfaces that implement Set access to the following methods:
@@ -146,8 +62,8 @@ type SetOp struct {
 
 // Add adds a single element to the set returning if the operation was
 // successful
-func (s *SetOp) Add(v int) (ok bool) { return s.keyAdd(asKey(&v)) }
-func (s *SetOp) keyAdd(k *key) (ok bool) {
+func (s *SetOp) Add(v int) (ok bool) { return s.keyAdd(asKey(v)) }
+func (s *SetOp) keyAdd(k key) (ok bool) {
 	// Can only add if we don't have the key
 	ok = !s.keyHas(k)
 	if !ok {
@@ -160,8 +76,8 @@ func (s *SetOp) keyAdd(k *key) (ok bool) {
 
 // Delete removes a single element to the set returning if the operation was
 // successful
-func (s *SetOp) Delete(v int) (ok bool) { return s.keyDelete(asKey(&v)) }
-func (s *SetOp) keyDelete(k *key) (ok bool) {
+func (s *SetOp) Delete(v int) (ok bool) { return s.keyDelete(asKey(v)) }
+func (s *SetOp) keyDelete(k key) (ok bool) {
 	// Can only delete if we have the key
 	ok = s.keyHas(k)
 	if !ok {
@@ -174,10 +90,10 @@ func (s *SetOp) keyDelete(k *key) (ok bool) {
 
 // mutate is not for external use.  It is intended to make the code for 'Update'
 // and 'Remove' smaller
-func (s *SetOp) mutate(mutateFunc func(*key) bool, kk *[]key) (change int) {
+func (s *SetOp) mutate(mutateFunc func(key) bool, vv []int) (change int) {
 	init := s.Card()
-	for _, v := range *kk {
-		mutateFunc(&v)
+	for _, v := range vv {
+		mutateFunc(asKey(v))
 	}
 	if init > s.Card() {
 		return init - s.Card()
@@ -185,17 +101,8 @@ func (s *SetOp) mutate(mutateFunc func(*key) bool, kk *[]key) (change int) {
 	return s.Card() - init
 }
 
-func (s *SetOp) Update(vv ...int) (added int)   { return s.mutate(s.keyAdd, asKeys(&vv)) }
-func (s *SetOp) Remove(vv ...int) (deleted int) { return s.mutate(s.keyDelete, asKeys(&vv)) }
-
-// Pop returns the last item in ordered sets and is the same as calling 'Iter()'
-// on unordered set iterator
-func (s *SetOp) Pop() (v *int) { return asData(s.keyPop()) }
-func (s *SetOp) keyPop() (k *key) {
-	k = s.Iterator().keyPop()
-	s.keyDelete(k)
-	return
-}
+func (s *SetOp) Update(vv ...int) (added int)   { return s.mutate(s.keyAdd, vv) }
+func (s *SetOp) Remove(vv ...int) (deleted int) { return s.mutate(s.keyDelete, vv) }
 
 /////////////////////////////////////////////////////////////////////////////////
 //                                 Operations                                  //
@@ -213,17 +120,14 @@ func (s *SetOp) predicateSet(other Set, all bool) (product Set) {
 		b = s
 		a = otherOp
 	}
-	for iterator := a.Iterator(); ; {
-		k, done := iterator.keyIter()
-		if done {
-			break
-		}
-		// Compare predicate and add if it matches
+	a.keyEach(func(k key) (_ bool) {
+		// Add keys to product, skipping if predicate matches.
 		if b.keyHas(k) != all {
-			continue
+			return
 		}
 		product.mapKeyAdd(k)
-	}
+		return
+	})
 	return
 }
 func (s *SetOp) intersection(other Set) (product Set) { return s.predicateSet(other, true) }
@@ -234,13 +138,11 @@ func (s *SetOp) symmetricDifference(other Set) (product Set) {
 	diff1 := &SetOp{(&SetOp{other}).predicateSet(union, false)}
 	// Diff 2
 	diff2 := s.predicateSet(union, false)
-	for iterator := diff2.Iterator(); ; {
-		k, done := iterator.keyIter()
-		if done {
-			break
-		}
+
+	diff2.keyEach(func(k key) (_ bool) {
 		diff1.keyAdd(k)
-	}
+		return
+	})
 	product = diff1.Set
 	return
 }
@@ -252,14 +154,35 @@ func (s *SetOp) union(other Set) (product Set) {
 		larg = s.Set
 	}
 	c := &SetOp{larg.copySet()}
-	for iterator := smol.Iterator(); ; {
-		k, done := iterator.keyIter()
-		if done {
-			product = c.Set
-			return
-		}
+	smol.keyEach(func(k key) (_ bool) {
 		c.keyAdd(k)
+		return
+	})
+	return c.Set
+}
+func (s *SetOp) Each(do func(v int) (done bool)) {
+	keyDo := func(k key) (done bool) {
+		return do(asData(k))
 	}
+	s.keyEach(keyDo)
+}
+
+func (s *SetOp) Get(i int) (v int) {
+	if s.Card() <= i {
+		panic(fmt.Sprintf("%d out of range of set with cardinality %d", i, s.Card()))
+	}
+	j := 0
+	var result key
+	s.keyEach(func(k key) (done bool) {
+		if j == i {
+			result = k
+			return true
+		}
+		j++
+		return
+	})
+	v = asData(result)
+	return
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -283,33 +206,39 @@ func (s *SetOp) JointSetCategory(other Set) JointSetCategory {
 	// TODO: deal with empty set which is both a disjoint and a subset of other <16-01-21, Max Schulte> //
 
 	// Separate set into what is smaller and larger set
-	small, large := Set(s), other
+	smol, larg := Set(s), other
 	if s.Card() > other.Card() {
-		small, large = other, s
+		smol, larg = other, s
 	}
 
 	// See if the set should include or exclude
 	var predicate bool
-	iterator := small.Iterator()
-	k, done := iterator.keyIter()
-	predicate = other.keyHas(k)
+	smol.keyEach(func(k key) (done bool) {
+		predicate = other.keyHas(k)
+		done = true
+		return
+	})
 
 	// Iterate over the smallest set and check for items in other set
-	for done {
-		k, done := iterator.keyIter()
-		if done {
-			break
+	predicateFailed := false
+	smol.keyEach(func(k key) (done bool) {
+		if larg.keyHas(k) != predicate {
+			predicateFailed = true
+			return true
 		}
-		if large.keyHas(k) != predicate {
-			return JointSetNone
-		}
-	}
+		return
+	})
 
 	// Return what we were trying to prove all along
+	// If the predicate failed to be proven return no joint set.
+	if predicateFailed {
+		return JointSetNone
+	}
+	// If predicate is false then neither two sets had similiar elements.
 	if predicate == false {
 		return JointSetDisJoint
 	}
-	// Joint Set Category
+	// Otherwise the sets are joint based on some relation of cardinality
 	switch {
 	case s.Card() == other.Card():
 		return JointSetEqualset
@@ -334,19 +263,14 @@ func (s *SetOp) IsEqual(other Set) bool {
 	return s.JointSetCategory(other) == JointSetEqualset
 }
 
-func (s *SetOp) Has(v int) bool { return s.keyHas(asKey(&v)) }
+func (s *SetOp) Has(v int) bool { return s.keyHas(asKey(v)) }
 
 func (s *SetOp) Values() []int {
 	vv := make([]int, 0, s.Card())
-
-	for iterator := s.Iterator(); ; {
-		// Get next value
-		k, done := iterator.keyIter()
-		if done {
-			break
-		}
-		vv = append(vv, *asData(k))
-	}
+	s.keyEach(func(k key) (_ bool) {
+		vv = append(vv, asData(k))
+		return
+	})
 	return vv
 }
 
@@ -404,24 +328,34 @@ func (s *unorderedSet) copySet() Set {
 }
 
 // Key related operations
-func (s *unorderedSet) keyHas(k *key) bool { _, has := s.set[*k]; return has }
-func (s *unorderedSet) mapKeyAdd(k *key)   { s.set[*k] = struct{}{} }
-func (s *unorderedSet) mapKeyDel(k *key)   { delete(s.set, *k) }
+func (s *unorderedSet) keyHas(k key) bool { _, has := s.set[k]; return has }
+func (s *unorderedSet) mapKeyAdd(k key)   { s.set[k] = struct{}{} }
+func (s *unorderedSet) mapKeyDel(k key)   { delete(s.set, k) }
 
 // Set cardinality
 func (s *unorderedSet) Card() int { return len(s.set) }
 
-// Channel and key based iteration
-func (s *unorderedSet) Iterator() *setIteratorOp {
-	return &setIteratorOp{&mapkeyIterator{reflect.ValueOf(s.set).MapRange()}}
-}
-func (s *unorderedSet) Chan() (iterator setCh) {
-	iterator = make(setCh)
-	go func() {
-		for key, _ := range s.set {
-			iterator <- &key
+// Iteration
+func (s *unorderedSet) keyEach(do func(k key) (done bool)) {
+	for k, _ := range s.set {
+		done := do(k)
+		if done {
+			return
 		}
-		close(iterator)
+	}
+}
+func (s *unorderedSet) Chan() (iterator *setCh) {
+	iterator = newSetCh()
+	go func() {
+		i := 0
+		for k, _ := range s.set {
+			iterator.send(k)
+			i++
+		}
+		// Close channel if not already closed
+		if i == s.Card() {
+			iterator.Close()
+		}
 	}()
 	return
 }
@@ -447,11 +381,11 @@ func (s *UnorderedSet) Union(other Set) (product *UnorderedSet) {
 }
 
 // Order returns copy of the current set as an ordered set
-func (s *UnorderedSet) Order(cmp func(v1, v2 *int) bool) *OrderedSet {
+func (s *UnorderedSet) Order(cmp func(v1, v2 int) bool) *OrderedSet {
 	result := NewOrderedSetWithCapacity(cmp, s.Card())
 	for k, _ := range s.set.set {
-		result.set.mapKeyAdd(&k)
-		result.keyAdd(&k)
+		result.set.mapKeyAdd(k)
+		result.keyAdd(k)
 	}
 	return result
 }
@@ -460,20 +394,20 @@ func (s *UnorderedSet) Order(cmp func(v1, v2 *int) bool) *OrderedSet {
 //                                 Ordered Set                                 //
 /////////////////////////////////////////////////////////////////////////////////
 
-func NewOrderedSet(cmp func(v1, v2 *int) bool) *OrderedSet {
+func NewOrderedSet(cmp func(v1, v2 int) bool) *OrderedSet {
 	return NewOrderedSetWithCapacity(cmp, 0)
 }
 
-func NewOrderedSetFromSlice(cmp func(v1, v2 *int) bool, vv []int) *OrderedSet {
+func NewOrderedSetFromSlice(cmp func(v1, v2 int) bool, vv []int) *OrderedSet {
 	return NewOrderedSetWith(cmp, vv...)
 }
-func NewOrderedSetWith(cmp func(v1, v2 *int) bool, vv ...int) *OrderedSet {
+func NewOrderedSetWith(cmp func(v1, v2 int) bool, vv ...int) *OrderedSet {
 	result := NewOrderedSetWithCapacity(cmp, 0)
 	result.Update(vv...)
 	return result
 }
 
-func NewOrderedSetWithCapacity(cmp func(v1, v2 *int) bool, capacity int) *OrderedSet {
+func NewOrderedSetWithCapacity(cmp func(v1, v2 int) bool, capacity int) *OrderedSet {
 	set := &orderedSet{
 		set:     make(map[key]struct{}),
 		keys:    make([]key, 0, capacity),
@@ -490,13 +424,13 @@ type OrderedSet struct {
 type orderedSet struct {
 	set     map[key]struct{}
 	keys    []key
-	compare func(v1, v2 *int) bool
+	compare func(v1, v2 int) bool
 }
 
-func (o *orderedSet) search(k *key) int {
+func (o *orderedSet) search(k key) int {
 	// Find the user defined sort comparison index
 	return sort.Search(len(o.keys), func(i int) bool {
-		return o.compare(asData(k), asData(&o.keys[i]))
+		return o.compare(asData(k), asData(o.keys[i]))
 	})
 }
 
@@ -515,39 +449,49 @@ func (o *orderedSet) copySet() Set {
 }
 
 // Key related operations
-func (o *orderedSet) keyHas(k *key) bool { _, ok := o.set[*k]; return ok }
-func (o *orderedSet) mapKeyAdd(k *key) {
+func (o *orderedSet) keyHas(k key) bool { _, ok := o.set[k]; return ok }
+func (o *orderedSet) mapKeyAdd(k key) {
 	i := o.search(k)
 	// Shift over, copy mem, and insert element at i
-	o.keys = append(o.keys, *k)
+	o.keys = append(o.keys, k)
 	copy(o.keys[i+1:], o.keys[i:len(o.keys)-1])
-	o.keys[i] = *k
+	o.keys[i] = k
 	// Add to map
-	o.set[*k] = struct{}{}
+	o.set[k] = struct{}{}
 }
-func (o *orderedSet) mapKeyDel(k *key) {
+func (o *orderedSet) mapKeyDel(k key) {
 	i := o.search(k)
 	// Get the end slice of keys
 	// Remove k from the sorted set
 	o.keys = append(o.keys[:i], o.keys[i+1:]...)
 	// Remove from map
-	delete(o.set, *k)
+	delete(o.set, k)
 }
 
 // Set cardinality
 func (o *orderedSet) Card() int { return len(o.keys) }
-func (o *orderedSet) Iterator() *setIteratorOp {
-	return &setIteratorOp{newSliceIterator(o.keys)}
-}
 
-// Channel and key based iteration
-func (o *orderedSet) Chan() (iterator setCh) {
-	iterator = make(setCh)
-	go func() {
-		for _, k := range o.keys {
-			iterator <- &k
+// Iteration
+func (o *orderedSet) keyEach(do func(k key) (done bool)) {
+	for _, k := range o.keys {
+		done := do(k)
+		if done {
+			return
 		}
-		close(iterator)
+	}
+}
+func (o *orderedSet) Chan() (iterator *setCh) {
+	iterator = newSetCh()
+	go func() {
+		i := 0
+		for k, _ := range o.set {
+			iterator.send(k)
+			i++
+		}
+		// Close channel if not already closed
+		if i == o.Card() {
+			iterator.Close()
+		}
 	}()
 	return
 }
@@ -575,7 +519,7 @@ func (o *OrderedSet) Union(other Set) (product *OrderedSet) {
 func (o *OrderedSet) Unorder() *UnorderedSet {
 	result := NewSet()
 	for _, k := range o.set.keys {
-		result.keyAdd(&k)
+		result.keyAdd(k)
 	}
 	return result
 }

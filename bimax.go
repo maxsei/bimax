@@ -3,10 +3,50 @@ package main
 import (
 	"fmt"
 
+	"C"
+
 	"github.com/yourbasic/graph"
 )
+import "unsafe"
 
-func BiMaxBinaryMatrix(n, m int, data []uint8) (rows, cols []int) {
+// func main() {}
+
+// func BiMaxBinaryMatrixC(n, m int, data []uint8) **C.GoInt {
+
+//export BiMaxBinaryMatrixC
+// func BiMaxBinaryMatrixC(n, m int, data []uint8) (C.size_t, C.size_t, **C.longlong) {
+// func BiMaxBinaryMatrixC(n, m int, data []uint8) (C.size_t, **C.longlong) {
+func BiMaxBinaryMatrixC(n, m int, data []uint8) (C.size_t, *C.longlong) {
+	rows, cols := BiMaxBinaryMatrix(n, m, data)
+	fmt.Printf("rows = %+v\n", rows)
+	fmt.Printf("cols = %+v\n", cols)
+	// p = C.malloc(C.size_t(len(result)) * C.size_t(unsafe.Sizeof(uintptr(0))))
+
+	size := len(rows) + len(cols)
+	// allocate the *C.double array
+	dataC := C.malloc(C.size_t(size) * C.size_t(unsafe.Sizeof(int64(0))))
+
+	// convert the pointer to a go slice so we can index it
+	doubles := (*[1<<30 - 1]C.longlong)(dataC)[:size:size]
+	offset := 0
+	for i, vv := range [][]int{rows, cols} {
+		for j, v := range vv {
+			v64 := int64(v)
+			doubles[i*offset+j] = *(*C.longlong)(unsafe.Pointer(&v64))
+		}
+		offset += len(vv)
+	}
+
+	// return C.size_t(len(result[0])), C.size_t(len(result[1])), (*C.double)(p)
+	return C.size_t(size), (*C.longlong)(dataC)
+}
+
+// BiMaxBinaryMatrix takes in an n by m binary matrix where n is the number of
+// rows and m the number of columns.  The data for the binary matrix is
+// specified as a slice of uint8 containing only 1's and 0's.
+//export BiMaxBinaryMatrix
+func BiMaxBinaryMatrix(n, m int, data []uint8) ([]int, []int) {
+	fmt.Printf("data = %+v\n", data)
 	if (len(data) / m) != n {
 		panic(fmt.Sprintf("matrix data cannot be reshaped into [%d, %d]", n, m))
 	}
@@ -31,12 +71,14 @@ func BiMaxBinaryMatrix(n, m int, data []uint8) (rows, cols []int) {
 	if B.Has(0) {
 		rowset, colset = B, A
 	}
-	rows = rowset.Values()
-	cols = colset.Values()
+	rows := rowset.Values()
+	cols := colset.Values()
+	// Subtract the number of rows from columns to go from graph column index to
+	// column index
 	for i := 0; i < len(cols); i++ {
 		cols[i] -= n
 	}
-	return
+	return rows, cols
 }
 
 // func BiMaxVerticies(uu, vv []int) (Set, Set) {
@@ -63,8 +105,8 @@ func BiMax(G *graph.Mutable, L, PU *UnorderedSet) (*SetOp, *SetOp) {
 	R := NewSet()
 	// P: is a set of verticies ∈ V that can be added to R, initially P = V,
 	// sorted by non-decreasing order of neigborhood size
-	P := PU.Order(func(v1, v2 *int) bool {
-		return G.Degree(*v1) <= G.Degree(*v2)
+	P := PU.Order(func(v1, v2 int) bool {
+		return G.Degree(v1) <= G.Degree(v2)
 	})
 
 	// Q: is a set of verticies used to determine maximality, initially empty
@@ -75,17 +117,15 @@ func BiMax(G *graph.Mutable, L, PU *UnorderedSet) (*SetOp, *SetOp) {
 
 	var bicliqueFind func(P *OrderedSet, L, R, Q *UnorderedSet)
 	bicliqueFind = func(P *OrderedSet, L, R, Q *UnorderedSet) {
-		// PValues := P.Values()
-
 		for i := 0; 0 < P.Card(); i++ {
-			x, _ := P.Iterator().Iter()
+			x := P.Get(0)
 
 			// Candidates
-			C := NewSetWith(*x)
+			c := NewSetWith(x)
 			// Rʹ is set of verticies in current biclique
-			Rʹ := R.Union(C)
+			Rʹ := R.Union(c)
 			// Lʹ is the set verticies in L that neighbor x
-			Lʹ := NeighborSet(*x, L, G, false).(*UnorderedSet)
+			Lʹ := NeighborSet(x, L.SetOp, G, false).(*UnorderedSet)
 			// Complement of Lʹ
 			Lʹᶜ := L.Difference(Lʹ)
 
@@ -96,50 +136,45 @@ func BiMax(G *graph.Mutable, L, PU *UnorderedSet) (*SetOp, *SetOp) {
 			// bicliqueFind = func(Pʹ *OrderedSet, Lʹ, Rʹ, Qʹ *UnorderedSet) {
 			maximal := true
 			// For all v in Q
-			for iterator := Q.Iterator(); ; {
-				v, done := iterator.Iter()
-				if done {
-					break
-				}
+			Q.Each(func(v int) (done bool) {
 				// Cardinality of closed neighborhood at v is the the degree + 1
-				LʹNeighborVDegree := NeighborSetDegree(*v, Lʹ, G, false)
+				LʹNeighborVDegree := NeighborSetDegree(v, Lʹ.SetOp, G, false)
 				// N := NeighborSet(*v, Lʹ, G, false)
 				if LʹNeighborVDegree == Lʹ.Card() {
 					maximal = false
-					break
+					return true
 				}
 				if LʹNeighborVDegree > 0 {
-					Qʹ.Add(*v)
+					Qʹ.Add(v)
 				}
-			}
+				return
+			})
+
 			if maximal {
 				// For each v in P excluding x
-				for iterator := P.Iterator(); ; {
-					v, done := iterator.Iter()
-					if done {
-						break
-					}
-					if *x == *v {
-						continue
+				P.Each(func(v int) (done bool) {
+					if x == v {
+						return
 					}
 
 					// Set of {uϵLʹ| (u, v) ϵ E(G)} set of verticies u such that u and v
 					// are edges in graph G including v
 					// N := NeighborSet(*v, Lʹ, G, false)
-					N := NeighborSet(*v, Lʹ, G, false)
+					N := NeighborSet(v, Lʹ.SetOp, G, false)
 					if N.Card() == Lʹ.Card() {
-						Rʹ.Add(*v)
+						Rʹ.Add(v)
 						// Set of {uϵLʹᶜ| (u, v) ϵ E(G)} set of verticies u such that u and v
 						// are edges in graph G
-						if NeighborSetDegree(*v, Lʹᶜ, G, false) == 0 {
-							C.Add(*v)
+						if NeighborSetDegree(v, Lʹᶜ.SetOp, G, false) == 0 {
+							c.Add(v)
 						}
-						continue
+						return
 					}
 					if N.Card() == 0 {
-						Pʹ.Add(*v)
+						Pʹ.Add(v)
 					}
-				}
+					return
+				})
 				// Print Maximal biclique
 				if (A.Card() * B.Card()) < (Lʹ.Card() * Rʹ.Card()) {
 					// A = Lʹ.Copy()
@@ -152,7 +187,7 @@ func BiMax(G *graph.Mutable, L, PU *UnorderedSet) (*SetOp, *SetOp) {
 					bicliqueFind(Pʹ, Lʹ, Rʹ, Qʹ)
 				}
 			}
-			CValues := C.Values()
+			CValues := c.Values()
 			Q.Update(CValues...)
 			P.Remove(CValues...)
 		}
@@ -170,38 +205,32 @@ func ClosedDegree(v int, G *graph.Mutable) (degree int) {
 	return
 }
 
-func NeighborSetDegree(v int, set Set, G *graph.Mutable, closed bool) int {
+func NeighborSetDegree(v int, set *SetOp, G *graph.Mutable, closed bool) int {
 	result := 0
-	for iterator := set.Iterator(); ; {
-		u, done := iterator.Iter()
-		if done {
-			break
-		}
-		if !G.Edge(*u, v) {
-			continue
+	set.Each(func(u int) (done bool) {
+		if !G.Edge(u, v) {
+			return
 		}
 		result++
-	}
+		return
+	})
 	if (result > 0) && closed {
 		result++
 	}
 	return result
 }
 
-func NeighborSet(v int, set Set, G *graph.Mutable, closed bool) Set {
+func NeighborSet(v int, set *SetOp, G *graph.Mutable, closed bool) Set {
 	result := &SetOp{set.New()}
 	if closed {
 		result.Add(v)
 	}
-	for iterator := set.Iterator(); ; {
-		u, done := iterator.Iter()
-		if done {
-			break
+	set.Each(func(u int) (done bool) {
+		if !G.Edge(u, v) {
+			return
 		}
-		if !G.Edge(*u, v) {
-			continue
-		}
-		result.Add(*u)
-	}
+		result.Add(u)
+		return
+	})
 	return result.Set
 }
