@@ -1,37 +1,69 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/yourbasic/graph"
 )
 
+func BiMaxBinaryMatrix(n, m int, data []uint8) (rows, cols []int) {
+	if (len(data) / m) != n {
+		panic(fmt.Sprintf("matrix data cannot be reshaped into [%d, %d]", n, m))
+	}
+	G := graph.New(n + m)
+	uu, vv := NewSet(), NewSet()
+	for i, x := range data {
+		if x == 0 {
+			continue
+		}
+		// Calculate graph index.
+		graphIdxRow := i / m
+		graphIdxCol := i%m + n
+		// Add to graph and each bipartite vertex set.
+		uu.Add(graphIdxRow)
+		vv.Add(graphIdxCol)
+		G.AddBoth(graphIdxRow, graphIdxCol)
+	}
+	// Get the result of the bimax Function
+	A, B := BiMax(G, uu, vv)
+	// Find which contains rows
+	rowset, colset := A, B
+	if B.Has(0) {
+		rowset, colset = B, A
+	}
+	rows = rowset.Values()
+	cols = colset.Values()
+	for i := 0; i < len(cols); i++ {
+		cols[i] -= n
+	}
+	return
+}
+
+// func BiMaxVerticies(uu, vv []int) (Set, Set) {
+// 	if len(uu) != len(vv) {
+// 		panic(fmt.Sprintf("expected uu and vv to be the same length got len(uu): %d len(vv) %d", len(uu), len(vv)))
+// 	}
+// 	G := graph.New(len(uu))
+// 	for i := 0; i < len(uu); i++ {
+// 		G.AddBoth(uu[i], vv[i])
+// 	}
+// 	A, B := NewSetFromSlice(uu), NewSetFromSlice(vv)
+// 	if A.Card() < B.Card() {
+// 		return BiMax(B, A, PU)
+// 	}
+// 	return BiMax(A, B, PU)
+// }
+
 // BiMax finds the maximal bipartitie clique of a bipartite graph of graph G
 // where G is a bipartite graph of (U ∪ V, E)
-func BiMax(G *graph.Mutable) (Set, Set) {
-	// E: is the set of all verticies in G ( Edge set )
-	E := NewSet()
-	parts, _ := graph.Bipartition(G)
-	for _, v := range parts {
-		E.Add(v)
-		G.Visit(v, func(w int, c int64) (skip bool) {
-			E.Add(w)
-			return
-		})
-	}
+func BiMax(G *graph.Mutable, L, PU *UnorderedSet) (*SetOp, *SetOp) {
 	// L: is a set of verticies ∈ U that are common neigbors of R; initially L = U
-	L := NewSetFromSlice(parts)
-	PUnordered := E.Difference(L)
-	if L.Card() < PUnordered.Card() {
-		var tmp *UnorderedSet
-		tmp = L
-		L = PUnordered
-		PUnordered = tmp
-	}
 	// R: is a set of verticies ∈ V belonging to the current biclique; initially
 	// empty
 	R := NewSet()
 	// P: is a set of verticies ∈ V that can be added to R, initially P = V,
 	// sorted by non-decreasing order of neigborhood size
-	P := PUnordered.Order(func(v1, v2 *int) bool {
+	P := PU.Order(func(v1, v2 *int) bool {
 		return G.Degree(*v1) <= G.Degree(*v2)
 	})
 
@@ -126,7 +158,7 @@ func BiMax(G *graph.Mutable) (Set, Set) {
 		}
 	}
 	bicliqueFind(P, L, R, Q)
-	return A, B
+	return &SetOp{A}, &SetOp{B}
 }
 
 // ClosedDegree returns the degree of the closed neighborhood at v
