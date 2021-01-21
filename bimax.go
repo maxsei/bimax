@@ -79,7 +79,7 @@ func BiMax(G *graph.Mutable, L, PU *UnorderedSet) *BiMaxResult {
 	// P: is a set of verticies ∈ V that can be added to R, initially P = V,
 	// sorted by non-decreasing order of neigborhood size
 	P := PU.Order(func(v1, v2 int) bool {
-		return G.Degree(v1) <= G.Degree(v2)
+		return G.Degree(v2) <= G.Degree(v1)
 	})
 
 	// Q: is a set of verticies used to determine maximality, initially empty
