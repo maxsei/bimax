@@ -3,8 +3,6 @@ package bimax
 import (
 	"fmt"
 
-	"C"
-
 	"github.com/yourbasic/graph"
 )
 
