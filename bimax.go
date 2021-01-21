@@ -26,21 +26,6 @@ func BiMaxBinaryMatrixC(nc, nm int64, input *C.char) (C.size_t, *C.longlong, C.s
 	return result.ToC()
 }
 
-func separateRowCols(A, B *SetOp) (rows, cols []int) {
-	rowset, colset := A, B
-	if B.Has(0) {
-		rowset, colset = B, A
-	}
-	rows = rowset.Values()
-	cols = colset.Values()
-	// Subtract the number of rows from columns to go from graph column index to
-	// column index
-	for i := 0; i < len(cols); i++ {
-		cols[i] -= rowset.Card()
-	}
-	return
-}
-
 // BiMaxBinaryMatrix takes in an n by m binary matrix where n is the number of
 // rows and m the number of columns.  The data for the binary matrix is
 // specified as a slice of uint8 containing only 1's and 0's.
