@@ -13,13 +13,14 @@ import (
 )
 
 //export BiMaxBinaryMatrixC
-func BiMaxBinaryMatrixC(n64, m64 int64, input *C.char) (C.size_t, *C.longlong, C.size_t, *C.longlong) {
-	n := int(n64)
-	m := int(m64)
+func BiMaxBinaryMatrixC(nC, mC C.longlong, dataC *C.char) (C.size_t, *C.longlong, C.size_t, *C.longlong) {
 	// Convert C input data into Go data
+	n := int(nC)
+	m := int(mC)
+
 	var data []uint8
 	dataH := (*reflect.SliceHeader)(unsafe.Pointer(&data))
-	dataH.Data = uintptr(unsafe.Pointer(input))
+	dataH.Data = uintptr(unsafe.Pointer(dataC))
 	dataH.Len = n * m
 
 	result := BiMaxBinaryMatrix(n, m, data)
@@ -37,6 +38,7 @@ func BiMaxBinaryMatrix(n, m int, data []uint8) *BiMaxResult {
 	fmt.Printf("m = %+v\n", m)
 	G := graph.New(n + m)
 	U, V := NewSet(), NewSet()
+
 	for i, x := range data {
 		if x == 0 {
 			continue
@@ -53,17 +55,37 @@ func BiMaxBinaryMatrix(n, m int, data []uint8) *BiMaxResult {
 	return BiMax(G, U, V)
 }
 
-// func BiMaxBinaryVerticesC(uu, vv []int) *BiMaxResult {
-// }
+//export BiMaxVerticesC
+func BiMaxVerticesC(uuLenC C.size_t, uuC *C.longlong, vvLenC C.size_t, vvC *C.longlong) (C.size_t, *C.longlong, C.size_t, *C.longlong) {
+	var uu, vv []int
+	pointSliceToCData := func(length C.size_t, data *C.longlong, sl *[]int) {
+		header := (*reflect.SliceHeader)(unsafe.Pointer(sl))
+		header.Data = uintptr(unsafe.Pointer(data))
+		header.Len = int(length)
+	}
+	pointSliceToCData(uuLenC, uuC, &uu)
+	pointSliceToCData(vvLenC, vvC, &vv)
+	result := BiMaxVertices(uu, vv)
+	return result.ToC()
+}
 
-func BiMaxBinaryVertices(uu, vv []int) *BiMaxResult {
+func BiMaxVertices(uu, vv []int) *BiMaxResult {
 	if len(uu) != len(vv) {
 		panic(fmt.Sprintf("len(uu): %d len(vv): %d must be equal", len(uu), len(vv)))
 	}
 	U, V := NewSetFromSlice(uu), NewSetFromSlice(vv)
-	G := graph.New(U.Card() + V.Card())
+	// Find the maximal vertex index in the set ov V to be used the max number of
+	// vertecies in the Graph
+	var vtxCount int
+	V.Each(func(v int) (_ bool) {
+		if v > vtxCount {
+			vtxCount = v
+		}
+		return
+	})
+	G := graph.New(vtxCount + 1)
 	for i := 0; i < len(uu); i++ {
-		G.AddBoth(uu[i], vv[i]+U.Card())
+		G.AddBoth(uu[i], vv[i])
 	}
 	return BiMax(G, U, V)
 }
