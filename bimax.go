@@ -34,6 +34,13 @@ func BiMaxBinaryMatrix(n, m int, data []uint8) *BiMaxResult {
 	return BiMax(G, U, V)
 }
 
+// BiMaxVertices takes in two slices of verticies uu and vv that represents sets
+// U and V in a bipartite graph G such that a vertex within one of these sets
+// does not form an edge any other vertex within the same set.
+// U = {u∈U | (u,uʹ)∉G}
+// V = {v∈V | (v,vʹ)∉G}
+// The edge set of U and V makes up the graph G such that every vertex in set U
+// must map to some vertex in set V and vice versa
 func BiMaxVertices(uu, vv []int) *BiMaxResult {
 	if len(uu) != len(vv) {
 		panic(fmt.Sprintf("len(uu): %d len(vv): %d must be equal", len(uu), len(vv)))
