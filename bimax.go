@@ -53,7 +53,7 @@ func BiMaxBinaryMatrix(n, m int, data []uint8) *BiMaxResult {
 	return BiMax(G, U, V)
 }
 
-func BiMaxBinaryVerticis(uu, vv []int) *BiMaxResult {
+func BiMaxBinaryVertices(uu, vv []int) *BiMaxResult {
 	if len(uu) != len(vv) {
 		panic(fmt.Sprintf("len(uu): %d len(vv): %d must be equal", len(uu), len(vv)))
 	}
