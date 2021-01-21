@@ -13,9 +13,9 @@ import (
 )
 
 //export BiMaxBinaryMatrixC
-func BiMaxBinaryMatrixC(nc, nm int64, input *C.char) (C.size_t, *C.longlong, C.size_t, *C.longlong) {
-	n := int(nc)
-	m := int(nc)
+func BiMaxBinaryMatrixC(n64, m64 int64, input *C.char) (C.size_t, *C.longlong, C.size_t, *C.longlong) {
+	n := int(n64)
+	m := int(m64)
 	// Convert C input data into Go data
 	var data []uint8
 	dataH := (*reflect.SliceHeader)(unsafe.Pointer(&data))
@@ -52,6 +52,9 @@ func BiMaxBinaryMatrix(n, m int, data []uint8) *BiMaxResult {
 	// Get the result of the bimax Function
 	return BiMax(G, U, V)
 }
+
+// func BiMaxBinaryVerticesC(uu, vv []int) *BiMaxResult {
+// }
 
 func BiMaxBinaryVertices(uu, vv []int) *BiMaxResult {
 	if len(uu) != len(vv) {
