@@ -9,8 +9,10 @@ import (
 	"C"
 )
 
+func main() {}
+
 type BiMaxResult struct {
-	bimax.BiMaxResult
+	*bimax.BiMaxResult
 }
 
 // ToC converts the BiMaxResult to allocted data in C so for ease of use in
@@ -18,7 +20,7 @@ type BiMaxResult struct {
 // deal with returning to the C api.
 func (r *BiMaxResult) ToC() (C.size_t, *C.longlong, C.size_t, *C.longlong) {
 	// getSetValues64 returns the values of a set as []int64.
-	getSetValues64 := func(set *SetOp) []int64 {
+	getSetValues64 := func(set *bimax.SetOp) []int64 {
 		result := make([]int64, 0, set.Card())
 		set.Each(func(v int) (done bool) {
 			result = append(result, int64(v))
@@ -56,8 +58,8 @@ func BiMaxBinaryMatrixC(nC, mC C.longlong, dataC *C.char) (C.size_t, *C.longlong
 	dataH.Data = uintptr(unsafe.Pointer(dataC))
 	dataH.Len = n * m
 
-	result := BiMaxBinaryMatrix(n, m, data)
-	return result.ToC()
+	result := bimax.BiMaxBinaryMatrix(n, m, data)
+	return (&BiMaxResult{result}).ToC()
 }
 
 //export BiMaxVerticesC
@@ -70,6 +72,6 @@ func BiMaxVerticesC(uuLenC C.size_t, uuC *C.longlong, vvLenC C.size_t, vvC *C.lo
 	}
 	pointSliceToCData(uuLenC, uuC, &uu)
 	pointSliceToCData(vvLenC, vvC, &vv)
-	result := BiMaxVertices(uu, vv)
-	return result.ToC()
+	result := bimax.BiMaxVertices(uu, vv)
+	return (&BiMaxResult{result}).ToC()
 }
