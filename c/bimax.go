@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"unsafe"
 
-	"github.com/maxsei/bimax/bimax"
+	"github.com/maxsei/bimax"
 
 	"C"
 )
