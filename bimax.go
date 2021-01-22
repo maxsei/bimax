@@ -17,16 +17,20 @@ func BiMaxBinaryMatrix(n, m int, data []uint8) *BiMaxResult {
 	U, V := NewSet(), NewSet()
 
 	for i, x := range data {
-		if x == 0 {
+		switch x {
+		case 0:
 			continue
+		case 1:
+			// Calculate graph index.
+			graphIdxRow := i / m
+			graphIdxCol := i%m + n
+			// Add to graph and each bipartite vertex set.
+			U.Add(graphIdxRow)
+			V.Add(graphIdxCol)
+			G.AddBoth(graphIdxRow, graphIdxCol)
+		default:
+			panic(fmt.Sprintf("%d is not a zero or 1", x))
 		}
-		// Calculate graph index.
-		graphIdxRow := i / m
-		graphIdxCol := i%m + n
-		// Add to graph and each bipartite vertex set.
-		U.Add(graphIdxRow)
-		V.Add(graphIdxCol)
-		G.AddBoth(graphIdxRow, graphIdxCol)
 	}
 	// Get the result of the bimax Function
 	return BiMax(G, U, V)
