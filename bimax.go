@@ -13,8 +13,6 @@ func BiMaxBinaryMatrix(n, m int, data []uint8) *BiMaxResult {
 	if (len(data) / m) != n {
 		panic(fmt.Sprintf("matrix data cannot be reshaped into [%d, %d]", n, m))
 	}
-	fmt.Printf("n = %+v\n", n)
-	fmt.Printf("m = %+v\n", m)
 	G := graph.New(n + m)
 	U, V := NewSet(), NewSet()
 
