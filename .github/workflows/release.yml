@@ -30,3 +30,4 @@ jobs:
         binary_name: "libbimax.so"
         # build_flags: "-buildmode=c-shared"
         build_command: "make shared"
+        extra_files: libbimax.h
