@@ -27,5 +27,5 @@ jobs:
         goarch: ${{ matrix.goarch }}
         goversion: "https://dl.google.com/go/go1.16.3.linux-amd64.tar.gz"
         # project_path: "./cmd/test-binary"
-        # binary_name: "test-binary"
-        build_command: "go build -buildmode=c-shared -o releases/$RELEASE_NAME/libbimax.so c/bimax.go"
+        binary_name: "libbimax.so"
+        build_command: "go build -buildmode=c-shared c/bimax.go"
