@@ -29,5 +29,7 @@ jobs:
         # project_path: "./c"
         binary_name: "libbimax.so"
         # build_flags: "-buildmode=c-shared"
+        #
         build_command: "make shared"
+        release_tag: v0.0.1
         extra_files: libbimax.h
