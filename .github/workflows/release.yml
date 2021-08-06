@@ -25,7 +25,8 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         goos: ${{ matrix.goos }}
         goarch: ${{ matrix.goarch }}
-        goversion: "https://dl.google.com/go/go1.16.3.linux-amd64.tar.gz"
+        goversion: "https://dl.google.com/go/go1.15.15.linux-amd64.tar.gz"
         project_path: "c"
         binary_name: "libbimax.so"
-        build_command: "go build -buildmode=c-shared"
+        build_flags: "-buildmode=c-shared"
+        # build_command: "go build -buildmode=c-shared"
