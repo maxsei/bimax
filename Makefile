@@ -4,4 +4,4 @@ GOOS_GOARCH = darwin/386 darwin/amd64 linux/386 linux/amd64 linux/arm linux/arm6
 releases = $(GOOS_GOARCH)
 
 shared:
-	go build -buildmode=c-shared -o libbimax.so c/bimax.go
+	go build -v -x -race -buildmode=c-shared -o libbimax.so c/bimax.go
