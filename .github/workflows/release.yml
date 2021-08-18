@@ -1,3 +1,9 @@
+# Cannot build c-shared libraries cross platform without access to the
+# platforms c compiler toolchain.  Had to stop working on this today.  Check
+# out the following links:
+# https://stackoverflow.com/questions/65843413/cross-compile-a-shared-library-under-linux-for-windows
+# https://openprivacy.ca/discreet-log/09-flutter-with-native-go-libraries/
+# https://github.com/multiarch/crossbuild
 on:
   push:
     branches:
@@ -7,6 +13,15 @@ on:
       - master
 
 jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub release
+        uses: Roang-zero1/github-create-release-action@master
+        with:
+          version_regex: ^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   releases-matrix:
     name: Release Go Binary
     runs-on: ubuntu-latest
